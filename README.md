@@ -1,7 +1,7 @@
 
 title: “LarvaTrackR” output: github_document ———————–
 
-# LarvaTrackR <img src="man/figures/larvatrackr_logo.png" align="right" width="245" />
+# LarvaTrackR <img src="man/figures/larvatrackr_logo.png" align="right" width="300" />
 
 **LarvaTrackR** is an R package for semi-automated larval movement
 tracking from video files.
