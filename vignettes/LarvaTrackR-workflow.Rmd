@@ -1,0 +1,488 @@
+---
+title: "LarvaTrackR workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{LarvaTrackR workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+
+
+```{r}
+library(LarvaTrackR)
+library(dplyr)
+```
+
+## Step 1: Read video frames
+
+```{r eval=FALSE}
+frames <- read_video_frames(
+  video_path = "~/Data/Fly_data/original.mp4",  fps = 5) # select th enumber of frame
+
+pixel_size_mm <- 10 / 54  # check your scale here please
+
+roi <- select_roi(
+  frames,
+  frame_number = 1
+)     # select ROI by simply click on top-left and bottom-right
+
+frames_roi <- crop_frames_to_roi( frames,  roi) # apply the new ROI to all frames!
+```
+## check the frames cut
+```{r}
+# test b4 going ahead
+plot_frame(
+  frames_roi,
+  frame_number = 5
+)
+```
+
+
+## select objects
+```{r}
+selected_objects <- select_objects_precise(
+  frames = frames_roi,
+  frame_number = 1,
+  n = 4, #NUMBER OF ANIMALS
+  zoom_size = 45,rotate_180 = FALSE,
+  point_size = 0.5
+)
+```
+
+
+## Visualise objects
+```{r}
+#check if has been assigned good
+plot_selected_objects(
+  frames_roi,
+  selected_objects,
+  frame_number = 4
+)
+```
+
+
+
+
+## Method 1
+```{r}
+frame_mats <- lapply(frames_roi, get_gray_matrix)
+
+tracks <- track_selected_points(
+    frames = frames_roi,
+    selected_objects = selected_objects,
+    template_radius = 12,
+    search_radius = 30,
+    update_template = TRUE
+)
+plot_tracks_on_frame(tracks, frames, show_full_track = T,) # if the tracks are shitty select the second method. 
+```
+
+## method 2
+```{r}
+tracks <- track_selected_points_bright( frames = frames_roi,  selected_objects = selected_objects,  frame_mats = frame_mats,  search_radius = 20,  threshold_quantile = 0.96,  min_pixels = 5,  max_jump_px = 20)
+plot_tracks_on_frame(tracks, frames = frames)
+```
+
+## Plot movement outputs and Calculate movement metrics
+```{r}
+pixel_size_mm <- 10 / 54
+
+tracks_movement <- calculate_velocity_mm(
+    tracks,
+    fps = 5,
+    pixel_size_mm = pixel_size_mm
+)
+
+
+tracks_movement_analysis <- tracks_movement %>%
+  dplyr::filter(frame > 10)
+
+tracks_movement_clean <- calculate_movement_mm_clean(
+  tracks,
+  fps = 5,
+  pixel_size_mm = pixel_size_mm,
+  min_step_px = 1.5,
+  max_step_px = 34,
+  remove_first_frames = 2)
+
+plot_total_distance(tracks_movement_clean)
+```
+
+
+## Plot movement from the start
+```{r}
+
+pixel_size_mm <- 10 / 54
+
+tracks_movement <- add_displacement_from_start(
+  tracks_movement,
+  pixel_size_mm = pixel_size_mm
+)
+library(ggplot2)
+
+ggplot(tracks_movement, aes(x = time_s, y = displacement_from_start_mm,
+                            color = factor(track_id))) +
+  geom_line(linewidth = 1) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Time (s)",
+    y = "Displacement from start (mm)",
+    color = "Track ID"
+  )
+
+```
+
+
+# tracks movement summary
+```{r}
+library(dplyr)
+
+tracks_movement <- tracks_movement %>%
+  arrange(track_id, frame) %>%
+  group_by(track_id) %>%
+  mutate(
+    total_distance_mm = cumsum(ifelse(is.na(displacement_mm), 0, displacement_mm))
+  ) %>%
+  ungroup()
+
+movement_summary <- tracks_movement %>%
+  dplyr::group_by(track_id) %>%
+  dplyr::summarise(
+    total_distance_mm = max(total_distance_mm, na.rm = TRUE),
+    max_displacement_from_start_mm = max(displacement_from_start_mm, na.rm = TRUE),
+    mean_speed_mm_s = mean(speed_mm_s, na.rm = TRUE),
+    max_speed_mm_s = max(speed_mm_s, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+movement_summary
+```
+
+
+## plot tracks simple
+```{r}
+a <- plot_track_simple(
+  tracks = tracks,
+  frames = frames_roi,
+  frame_number = 1,
+  flip_y_for_display = F,
+  equal_aspect = FALSE
+)
+b <- plot_tracks_on_frame(
+  frames = frames_roi,line_width = 0.4,point_size = 0.5,
+  tracks = tracks,
+  frame_number = 1
+)
+
+cowplot::plot_grid(a, b)
+```
+
+
+
+# plot 3D
+```{r}
+plot_tracks_3d(
+  tracks = tracks,
+  frames = frames_roi,
+  fps = 5,
+  first_frame = 1,
+  last_frame = length(frames_roi),
+  image_downsample = 4,
+  flip_y_for_display = TRUE
+)
+p3d
+```
+
+
+#Companion distance analysis
+```{r}
+companion_distance <- calculate_companion_distance(
+  tracks = tracks,
+  fps = 5,
+  pixel_size = pixel_size_mm
+)
+
+head(companion_distance)
+
+
+plot_speed_over_time(
+  tracks_movement,
+  individual = TRUE,
+  max_speed = 7
+)
+
+plot_companion_distance(companion_distance)
+```
+
+
+
+# plot speed over time
+
+```{r}
+tracks_movement <- calculate_movement_mm(
+  tracks,
+  fps = 5,
+  pixel_size_mm = pixel_size_mm
+)
+plot_speed_over_time(tracks_movement)
+```
+
+
+## if you have high values. 
+
+```{r}
+tracks_movement_clean <- tracks_movement %>%
+  dplyr::mutate(
+    speed_mm_s_clean = dplyr::if_else(
+      speed_mm_s > 10,
+      NA_real_,
+      speed_mm_s
+    )
+  )
+
+a <- plot_speed_over_time_clean(
+  tracks_movement_clean,
+  individual = TRUE, max_speed = 10
+)
+
+b <- plot_speed_over_time_clean(
+  tracks_movement_clean,
+  individual = FALSE
+)
+
+
+c <- plot_tracks_on_frame(
+  tracks = tracks,
+  frames = frames_roi,
+  frame_number = 5
+)
+
+
+cowplot::plot_grid(a, b, c)
+```
+
+# summary of speed 
+```{r}
+######## frezzing 
+summary(tracks_movement_clean$speed_mm_s)
+
+hist(
+    tracks_movement_clean$speed_mm_s,
+    breaks = 50,
+    main = "Speed distribution",
+    xlab = "Speed mm/s"
+)
+```
+
+#Detect freezing-like behaviour
+```{r}
+#freezing = speed_mm_s < 0.8
+# -----------------------------
+# Add freezing status
+# -----------------------------
+
+tracks_freezing <- add_freezing_status(
+  tracks_movement_clean,
+  speed_threshold = 0.5,
+  min_freeze_duration_s = 5,
+  fps = 5,
+  speed_col = "speed_mm_s_clean"
+)
+
+# -----------------------------
+# Summary per animal
+# -----------------------------
+
+freezing_summary <- tracks_freezing %>%
+  dplyr::group_by(track_id) %>%
+  dplyr::summarise(
+    total_time_s = dplyr::n() / 5,
+    freezing_time_s = sum(freezing, na.rm = TRUE) / 5,
+    freezing_index = freezing_time_s / total_time_s,
+    freezing_percent = freezing_index * 100,
+    mean_speed_mm_s = mean(speed_mm_s_clean, na.rm = TRUE),
+    median_speed_mm_s = median(speed_mm_s_clean, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+freezing_summary
+```
+
+# freezing status plot 1
+```{r}
+p_freezing_index <- ggplot2::ggplot(
+  freezing_summary,
+  ggplot2::aes(x = "Condition", y = freezing_percent)
+) +
+  ggplot2::geom_boxplot(
+    width = 0.35,
+    outlier.shape = NA,
+    linewidth = 0.6
+  ) +
+  ggplot2::geom_jitter(
+    width = 0.08,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  ggplot2::theme_classic(base_size = 13) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Freezing index (%)",
+    title = "Freezing index per animal"
+  ) +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank(),
+    plot.title = ggplot2::element_text(face = "bold")
+  )
+
+p_freezing_index
+```
+
+# freezing status plot 2
+```{r}
+p_freezing_raster <- ggplot2::ggplot(
+  tracks_freezing,
+  ggplot2::aes(
+    x = time_s,
+    y = factor(track_id),
+    fill = freezing
+  )
+) +
+  ggplot2::geom_tile(height = 0.85) +
+  ggplot2::scale_fill_manual(
+    values = c("FALSE" = "grey85", "TRUE" = "black"),
+    labels = c("Moving", "Freezing")
+  ) +
+  ggplot2::theme_classic(base_size = 13) +
+  ggplot2::labs(
+    x = "Time (s)",
+    y = "Track ID",
+    fill = NULL,
+    title = "Freezing raster"
+  ) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold"),
+    legend.position = "top"
+  )
+
+p_freezing_raster
+```
+```{r}
+p_speed_trace <- ggplot2::ggplot(
+  tracks_freezing,
+  ggplot2::aes(
+    x = time_s,
+    y = speed_mm_s_clean,
+    group = track_id
+  )
+) +
+  ggplot2::geom_line(alpha = 0.45, linewidth = 0.4) +
+  ggplot2::geom_hline(
+    yintercept = 0.5,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  ggplot2::theme_classic(base_size = 13) +
+  ggplot2::labs(
+    x = "Time (s)",
+    y = "Speed (mm/s)",
+    title = "Speed traces with freezing threshold"
+  ) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold")
+  )
+
+p_speed_trace
+```
+
+# freezing status plot 3
+```{r}
+freezing_bouts <- tracks_freezing %>%
+  dplyr::arrange(track_id, frame) %>%
+  dplyr::group_by(track_id) %>%
+  dplyr::mutate(
+    freezing_start = freezing == TRUE &
+      dplyr::lag(freezing, default = FALSE) == FALSE,
+    bout_id = cumsum(freezing_start)
+  ) %>%
+  dplyr::filter(freezing == TRUE) %>%
+  dplyr::group_by(track_id, bout_id) %>%
+  dplyr::summarise(
+    bout_duration_s = dplyr::n() / 5,
+    .groups = "drop"
+  )
+
+freezing_bout_summary <- freezing_bouts %>%
+  dplyr::group_by(track_id) %>%
+  dplyr::summarise(
+    n_freezing_bouts = dplyr::n(),
+    mean_bout_duration_s = mean(bout_duration_s, na.rm = TRUE),
+    max_bout_duration_s = max(bout_duration_s, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+freezing_bout_summary
+
+p_bout_number <- ggplot2::ggplot(
+  freezing_bout_summary,
+  ggplot2::aes(x = factor(track_id), y = n_freezing_bouts)
+) +
+  ggplot2::geom_col(width = 0.65) +
+  ggplot2::theme_classic(base_size = 13) +
+  ggplot2::labs(
+    x = "Track ID",
+    y = "Number of freezing bouts",
+    title = "Freezing bouts per animal"
+  ) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold")
+  )
+
+p_bout_duration <- ggplot2::ggplot(
+  freezing_bouts,
+  ggplot2::aes(x = factor(track_id), y = bout_duration_s)
+) +
+  ggplot2::geom_boxplot(outlier.shape = NA, width = 0.5) +
+  ggplot2::geom_jitter(width = 0.12, size = 1.5, alpha = 0.7) +
+  ggplot2::theme_classic(base_size = 13) +
+  ggplot2::labs(
+    x = "Track ID",
+    y = "Bout duration (s)",
+    title = "Freezing bout duration"
+  ) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold")
+  )
+
+p_bout_number
+p_bout_duration
+```
+```{r fig.height=12, fig.width=12}
+final_freezing_plot <- cowplot::plot_grid(
+  p_freezing_index,
+  p_speed_trace,
+  p_freezing_raster,
+  p_bout_number,
+  p_bout_duration,
+  ncol = 2,
+  labels = c("A", "B", "C", "D", "E"),
+  label_size = 14
+)
+
+final_freezing_plot
+```
+
+
+## Notes
+
+Interactive functions such as `select_roi()`, `calibrate_scale()`, and `select_objects()` require manual clicking on a plot. Therefore, these examples use `eval=FALSE` so the vignette can build automatically without requiring user interaction.

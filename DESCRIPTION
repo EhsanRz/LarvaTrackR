@@ -1,0 +1,27 @@
+Package: LarvaTrackR
+Title: Larval Movement Tracking and Analysis
+Version: 0.0.1
+Authors@R: 
+    person("Ehsan", "Razmara", email = "eh.razmara@gmail.com", role = c("aut", "cre"))
+Description: Tools for reading video frames, selecting regions of interest,
+    tracking larval movement, calculating speed and distance, and plotting
+    movement behaviour over time.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    magrittr,
+    dplyr,
+    ggplot2,
+    av,
+    EBImage,
+    plotly,
+    grDevices,
+    graphics,
+    stats,
+    rlang
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
