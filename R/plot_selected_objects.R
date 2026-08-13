@@ -33,8 +33,7 @@ plot_selected_objects <- function(frames,
                                   selected_objects,
                                   frame_number = 1,
                                   point_size = 2,
-                                  show_all_selected = TRUE,
-                                  flip_y = TRUE) {
+                                  show_all_selected = TRUE) {
 
   img <- frames[[frame_number]]
 
@@ -49,24 +48,33 @@ plot_selected_objects <- function(frames,
     img_matrix <- img_matrix[, , 1]
   }
 
+  # EBImage dimensions:
+  # first dimension  = X / width
+  # second dimension = Y / height
   w <- dim(img_matrix)[1]
   h <- dim(img_matrix)[2]
 
+  # Transpose for R raster plotting,
+  # then flip rows ONCE so that Y increases upward
   img_raster <- as.raster(t(img_matrix)[h:1, ])
 
   if (show_all_selected) {
     selected_now <- selected_objects
   } else {
-    selected_now <- selected_objects[selected_objects$frame == frame_number, , drop = FALSE]
+    selected_now <- selected_objects[
+      selected_objects$frame == frame_number,
+      ,
+      drop = FALSE
+    ]
   }
 
   plot(
     NA,
     xlim = c(1, w),
-    ylim = c(h, 1),
+    ylim = c(1, h),
     xaxs = "i",
     yaxs = "i",
-    asp = NA,
+    asp = 1,
     xlab = "X",
     ylab = "Y",
     main = paste0("Selected object(s) - frame ", frame_number)
@@ -75,23 +83,16 @@ plot_selected_objects <- function(frames,
   rasterImage(
     img_raster,
     xleft = 1,
-    ybottom = h,
+    ybottom = 1,
     xright = w,
-    ytop = 1
+    ytop = h
   )
 
   if (nrow(selected_now) > 0) {
 
-    selected_now$x_plot <- selected_now$x
-    selected_now$y_plot <- selected_now$y
-
-    if (flip_y) {
-      selected_now$y_plot <- h - selected_now$y + 1
-    }
-
     points(
-      selected_now$x_plot,
-      selected_now$y_plot,
+      selected_now$x,
+      selected_now$y,
       pch = 21,
       bg = "red",
       col = "yellow",
@@ -105,11 +106,12 @@ plot_selected_objects <- function(frames,
     }
 
     text(
-      selected_now$x_plot,
-      selected_now$y_plot - 15,
+      selected_now$x,
+      selected_now$y + 15,
       labels = label_col,
       col = "yellow",
       cex = 0.9
     )
   }
 }
+
